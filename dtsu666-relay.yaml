@@ -1,0 +1,43 @@
+# DTSU666-H emulator + cooling relay — on the Waveshare ESP32-S3 board (relay variant
+# instead of CAN). The metering part is IDENTICAL to dtsu666-emulator.yaml: same shared
+# package packages/meter_core.yaml (same RS485 path: TX=GPIO17, RX=GPIO18, DE=GPIO21, 8N1).
+# Difference: a different device name (to avoid clashing with the other one on the
+# network / in HA) + a single gpio-switch for the relay. The plain emulator stays a cold
+# spare.
+substitutions:
+  device_name: dtsu666-relay
+  friendly_name: "DTSU666 Emulator (Relay)"
+  meter_address: "11"
+  handshake_code: "0x3B11"
+  uart_tx_pin: GPIO17
+  uart_rx_pin: GPIO18
+  rs485_de_re_pin: GPIO21
+  uart_stop_bits: "1"
+  victron_mqtt_host: !secret victron_mqtt_host
+  victron_portal_id: !secret victron_portal_id
+  victron_grid_instance: "0"
+  freshness_timeout_ms: "30000"
+  param_2217: "0"
+  param_2220: "0"
+  param_2221: "0"
+  param_2223: "0"
+  # Relay pin CH1 = GPIO47, active HIGH — confirmed by the Waveshare demo code
+  # (ESP32-S3-Relay-1CH-Demo, WS_GPIO.h: GPIO_PIN_CH1 47; WS_Relay.cpp: HIGH=ON).
+  # The same board exposes RS485 = TXD1 17 / RXD1 18 / TXD1EN 21 — matches our UART
+  # (same path).
+  relay_pin: GPIO47
+
+# Inverter cooling relay — driven from Home Assistant (HA implements the on/off logic).
+# RESTORE_DEFAULT_OFF: after a power loss the relay is OFF; HA restores the state.
+switch:
+  - platform: gpio
+    pin: ${relay_pin}
+    name: "Cooling Fan Relay"
+    id: relay_fan
+    restore_mode: RESTORE_DEFAULT_OFF
+
+packages:
+  meter_core: !include packages/meter_core.yaml
+  meter_registers: !include packages/meter_registers.yaml
+  victron_mqtt: !include packages/victron_mqtt.yaml
+  failsafe_ha: !include packages/failsafe_ha.yaml

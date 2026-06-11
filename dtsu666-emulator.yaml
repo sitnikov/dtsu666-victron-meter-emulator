@@ -1,0 +1,38 @@
+# DTSU666-H emulator for Huawei SUN2000 — phase 1 (virtual meter).
+# ESPHome version pinned: 2026.5.1 (= ghcr.io/esphome/esphome:stable as of 2026-05-31).
+# modbus_server is version-sensitive — re-validate config/compile on any version bump.
+# Hardware: Waveshare ESP32-S3-RS485-CAN (isolated RS485, DIN-rail, 7-36 V).
+# RS485 pins (Waveshare wiki + schematic): TX=GPIO17, RX=GPIO18, DE/flow=GPIO21.
+# Platform / network / RS485 path / diagnostics live in the shared packages/meter_core.yaml
+# (one package for both devices — nothing to keep in sync by hand).
+substitutions:
+  device_name: dtsu666-emulator
+  friendly_name: "DTSU666 Emulator"
+  meter_address: "11"
+  handshake_code: "0x3B11"
+  uart_tx_pin: GPIO17
+  uart_rx_pin: GPIO18
+  rs485_de_re_pin: GPIO21
+  # Stop bits: start with 8N1 — the native DTSU666-H default (Huawei manual). If the
+  # inverter does not identify the meter / the RS485 log shows CRC garbage — switch to
+  # "2" (8N2, as in salakrzy / the Modbus spec).
+  uart_stop_bits: "1"
+  victron_mqtt_host: !secret victron_mqtt_host
+  victron_portal_id: !secret victron_portal_id
+  victron_grid_instance: "0"
+  # Victron data staleness threshold. Dual role (see failsafe_ha.yaml):
+  # (1) at runtime — how long without an update before we mute Modbus (fail-safe b);
+  # (2) at startup — the window during which the meter answers with defaults until the
+  #     first MQTT message arrives.
+  # 30 s: survives a brief MQTT hiccup during the multi-minute meter identification.
+  freshness_timeout_ms: "30000"
+  param_2217: "0"
+  param_2220: "0"
+  param_2221: "0"
+  param_2223: "0"
+
+packages:
+  meter_core: !include packages/meter_core.yaml
+  meter_registers: !include packages/meter_registers.yaml
+  victron_mqtt: !include packages/victron_mqtt.yaml
+  failsafe_ha: !include packages/failsafe_ha.yaml

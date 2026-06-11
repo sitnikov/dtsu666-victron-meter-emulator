@@ -1,0 +1,100 @@
+# Fail-safe (variant b): when Victron data goes stale we mute Modbus (disable_loop), and the
+# inverter falls back to its normal derating. + Home Assistant entities.
+# freshness_timeout_ms (substitution) serves as two thresholds at once:
+#   - at runtime: how long to wait without a Victron update before going silent;
+#   - at startup: last_grid_update_ms=0, so fresh=true for the first freshness_timeout_ms,
+#     i.e. the meter answers with defaults (V=230, F=50, Pt=0) until the first MQTT arrives.
+# The window is deliberately shorter than the multi-minute inverter identification (keep margin, 30 s).
+# uint32_t millis()/last: the subtraction is correct (wrap once every ~49 days — irrelevant).
+globals:
+  - id: modbus_muted
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          uint32_t to = (uint32_t) ${freshness_timeout_ms};
+          bool fresh = (millis() - id(last_grid_update_ms)) < to;
+          id(data_fresh) = fresh;
+          if (!fresh && !id(modbus_muted)) {
+            id(modbus_hub)->disable_loop();
+            id(modbus_muted) = true;
+            ESP_LOGW("failsafe", "Victron stale -> mute Modbus (meter silent)");
+          } else if (fresh && id(modbus_muted)) {
+            // Flush the inverter requests that piled up in RX while muted: without this,
+            // after enable_loop() we would answer a stale frame at the same time as a new
+            // request (a brief bus collision). The inter-frame gaps in the backlog are lost anyway.
+            uint8_t drop;
+            while (id(uart_modbus).available()) id(uart_modbus).read_byte(&drop);
+            id(modbus_hub)->enable_loop();
+            id(modbus_muted) = false;
+            ESP_LOGI("failsafe", "Victron fresh -> Modbus responding again");
+          }
+
+sensor:
+  - platform: template
+    name: "Grid Power Total"
+    unit_of_measurement: W
+    device_class: power
+    accuracy_decimals: 0
+    update_interval: 2s
+    lambda: 'return id(grid_p_total);'
+  - platform: template
+    name: "Grid Power L1"
+    unit_of_measurement: W
+    device_class: power
+    update_interval: 2s
+    lambda: 'return id(grid_p_l1);'
+  - platform: template
+    name: "Grid Power L2"
+    unit_of_measurement: W
+    device_class: power
+    update_interval: 2s
+    lambda: 'return id(grid_p_l2);'
+  - platform: template
+    name: "Grid Power L3"
+    unit_of_measurement: W
+    device_class: power
+    update_interval: 2s
+    lambda: 'return id(grid_p_l3);'
+  # Voltage/frequency — background telemetry, 30 s is enough (powers are kept at 2 s:
+  # they are the working zero-export signal).
+  - platform: template
+    name: "Grid Voltage L1"
+    unit_of_measurement: V
+    device_class: voltage
+    update_interval: 30s
+    lambda: 'return id(grid_u_l1);'
+  - platform: template
+    name: "Grid Frequency"
+    unit_of_measurement: Hz
+    device_class: frequency
+    accuracy_decimals: 2
+    update_interval: 30s
+    lambda: 'return id(grid_freq);'
+  - platform: template
+    name: "Grid Data Age"
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: 2s
+    lambda: |-
+      if (id(last_grid_update_ms) == 0) return NAN;   // no MQTT yet -> unknown in HA
+      return (millis() - id(last_grid_update_ms)) / 1000.0f;
+
+binary_sensor:
+  - platform: template
+    name: "Victron Data Fresh"
+    device_class: connectivity
+    lambda: 'return id(data_fresh);'
+
+text_sensor:
+  - platform: template
+    name: "Meter Status"
+    update_interval: 2s
+    lambda: |-
+      if (id(modbus_muted)) return std::string("SILENT (Modbus muted, stale Victron)");
+      if (!id(data_fresh)) return std::string("STALE (Victron)");
+      return std::string("OK (mirroring grid)");

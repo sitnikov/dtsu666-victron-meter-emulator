@@ -1,0 +1,140 @@
+# Shared part of both devices (dtsu666-emulator.yaml / dtsu666-relay.yaml): platform,
+# network, diagnostics, RS485 path (UART + Modbus server) and traffic counters.
+# Device specifics — substitutions and extra blocks (relay, etc.) — live in the device file.
+# Extracted into this package so these blocks are not duplicated across both device files.
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s3-devkitc-1   # Waveshare ESP32-S3 (generic ESP32-S3, 4MB+)
+  framework:
+    type: arduino
+
+logger:
+  baud_rate: 0   # UART log disabled
+  # INFO: DEBUG lines are stripped at COMPILE time (vsnprintf is never executed) —
+  # less CPU in the loop, steadier RTU-slave timing. ESP_LOGW/LOGI for fail-safe stay.
+  # To debug UART frames (UARTDebug::log_hex — that is ESP_LOGD) temporarily raise to DEBUG.
+  level: INFO
+
+# kWh globals (ep_imp/ep_exp, restore_value) change on almost every MQTT update; the default
+# NVS flush of 60 s ≈ half a million writes/year — forever. 2 h ≈ 120x less wear; the cost is
+# that after a reboot the stored kWh is at most 2 h stale (the real value arrives over MQTT
+# within seconds; restore only exists so we don't serve 0 kWh during the boot window → no
+# spikes in FusionSolar).
+preferences:
+  flash_write_interval: 2h
+
+api:
+  reboot_timeout: 0s   # Do NOT reboot just because there is no native-API client (HA/esphome
+                       # logs); otherwise a reboot every 15 min drops the bus for ~15 s.
+                       # Critical for a meter.
+  # API encryption — optional, OFF by default (trusted LAN). To enable: uncomment the block
+  # and set api_encryption_key in secrets.yaml (key: openssl rand -base64 32). HA will ask
+  # for this key once when the device is added.
+  # encryption:
+  #   key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+web_server:
+  version: 3
+  port: 80
+
+# ESP reboot button — visible on the web page and in HA.
+button:
+  - platform: restart
+    name: "Reboot ESP"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # The Modbus path does not need WiFi: do NOT reboot on WiFi loss (the 15 min default would
+  # drop the bus for ~15 s + each reboot opens a 30 s window answering with defaults (Pt=0!) —
+  # and the stale-MQTT fail-safe already mutes the meter when Victron is lost). On the relay
+  # board a reboot would also reset the relay.
+  reboot_timeout: 0s
+  # No modem-sleep: MQTT receive latency (freshness of Pt — the key control signal) matters
+  # more than watts here — DIN-rail powered. ESPHome's ESP32 default is LIGHT (modem-sleep).
+  power_save_mode: none
+  ap:
+    ssid: "${device_name} Fallback"   # device_name: friendly_name can exceed the 32-char AP limit
+    password: !secret ap_fallback_password
+
+# RS485 traffic counters (visible in web_server and HA). Reset on reboot.
+globals:
+  - { id: rs485_rx_bytes,  type: uint32_t, restore_value: no, initial_value: '0' }
+  - { id: rs485_tx_bytes,  type: uint32_t, restore_value: no, initial_value: '0' }
+  - { id: rs485_rx_frames, type: uint32_t, restore_value: no, initial_value: '0' }
+  - { id: rs485_tx_frames, type: uint32_t, restore_value: no, initial_value: '0' }
+
+uart:
+  - id: uart_modbus
+    tx_pin: ${uart_tx_pin}
+    rx_pin: ${uart_rx_pin}
+    baud_rate: 9600
+    data_bits: 8
+    parity: NONE
+    stop_bits: ${uart_stop_bits}
+    # UART tap for the RS485 traffic COUNTERS (RX/TX). Hex frame logging was REMOVED to save
+    # CPU (it formatted ~165 B into a string and sent it over the network on every poll). To
+    # temporarily restore frame debug — add as the first line in the lambda (and raise
+    # logger.level to DEBUG):
+    #   UARTDebug::log_hex(direction, bytes, ' ');   // <<< = inverter request, >>> = our reply
+    debug:
+      direction: BOTH
+      dummy_receiver: false
+      after:
+        timeout: 12ms   # frame complete after a pause (RTU >=3.5 chars ≈ 4 ms @9600; with margin)
+        bytes: 256      # whole frame at once → RX/TX counted as 1 (the ~165 B reply is not split)
+      sequence:
+        - lambda: |-
+            if (direction == uart::UART_DIRECTION_RX) {
+              id(rs485_rx_bytes)  += bytes.size();
+              id(rs485_rx_frames) += 1;
+            } else {
+              id(rs485_tx_bytes)  += bytes.size();
+              id(rs485_tx_frames) += 1;
+            }
+
+modbus:
+  - id: modbus_hub
+    uart_id: uart_modbus
+    role: server
+    flow_control_pin: ${rs485_de_re_pin}
+
+# RS485 traffic counters in web_server/HA (diagnostics; 60 s is enough, we don't spam
+# api/web/mqtt with publications every 5 s).
+sensor:
+  - platform: template
+    name: "RS485 RX frames"
+    lambda: 'return id(rs485_rx_frames);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+  - platform: template
+    name: "RS485 TX frames"
+    lambda: 'return id(rs485_tx_frames);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+  - platform: template
+    name: "RS485 RX bytes"
+    unit_of_measurement: "B"
+    lambda: 'return id(rs485_rx_bytes);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+  - platform: template
+    name: "RS485 TX bytes"
+    unit_of_measurement: "B"
+    lambda: 'return id(rs485_tx_bytes);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic

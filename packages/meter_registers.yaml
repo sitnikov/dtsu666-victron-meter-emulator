@@ -1,0 +1,154 @@
+# DTSU666-H meter snapshot + register map for modbus_server.
+# Map per docs/reference/huawei-dtsu666-meter.md. FP32 = big-endian, high word first.
+globals:
+  - id: grid_p_total
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_p_l1
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_p_l2
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_p_l3
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_u_l1
+    type: float
+    restore_value: no
+    initial_value: '230.0'
+  - id: grid_u_l2
+    type: float
+    restore_value: no
+    initial_value: '230.0'
+  - id: grid_u_l3
+    type: float
+    restore_value: no
+    initial_value: '230.0'
+  - id: grid_uab
+    type: float
+    restore_value: no
+    initial_value: '400.0'
+  - id: grid_ubc
+    type: float
+    restore_value: no
+    initial_value: '400.0'
+  - id: grid_uca
+    type: float
+    restore_value: no
+    initial_value: '400.0'
+  - id: grid_i_l1
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_i_l2
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_i_l3
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: grid_freq
+    type: float
+    restore_value: no
+    initial_value: '50.0'
+  # cos φ — real values from Victron (scale 1). Default 1.0 until the first MQTT message.
+  - id: grid_pf_total
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+  - id: grid_pf_l1
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+  - id: grid_pf_l2
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+  - id: grid_pf_l3
+    type: float
+    restore_value: no
+    initial_value: '1.0'
+  - id: ep_imp
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+  - id: ep_exp
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+  - id: last_grid_update_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: data_fresh
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+modbus_server:
+  - modbus_id: modbus_hub
+    address: ${meter_address}
+    courtesy_response:
+      enabled: true
+      register_value: 0
+    registers:
+      - address: 0x07D1
+        value_type: U_WORD
+        read_lambda: |-
+          return (uint16_t) ${handshake_code};
+      - { address: 0x0836, value_type: FP32, read_lambda: 'return id(grid_i_l1);' }
+      - { address: 0x0838, value_type: FP32, read_lambda: 'return id(grid_i_l2);' }
+      - { address: 0x083A, value_type: FP32, read_lambda: 'return id(grid_i_l3);' }
+      - { address: 0x083C, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x083E, value_type: FP32, read_lambda: 'return id(grid_u_l1);' }
+      - { address: 0x0840, value_type: FP32, read_lambda: 'return id(grid_u_l2);' }
+      - { address: 0x0842, value_type: FP32, read_lambda: 'return id(grid_u_l3);' }
+      - { address: 0x0844, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0846, value_type: FP32, read_lambda: 'return id(grid_uab);' }
+      - { address: 0x0848, value_type: FP32, read_lambda: 'return id(grid_ubc);' }
+      - { address: 0x084A, value_type: FP32, read_lambda: 'return id(grid_uca);' }
+      - { address: 0x084C, value_type: FP32, read_lambda: 'return id(grid_freq);' }
+      - { address: 0x084E, value_type: FP32, read_lambda: 'return id(grid_p_total);' }
+      - { address: 0x0850, value_type: FP32, read_lambda: 'return id(grid_p_l1);' }
+      - { address: 0x0852, value_type: FP32, read_lambda: 'return id(grid_p_l2);' }
+      - { address: 0x0854, value_type: FP32, read_lambda: 'return id(grid_p_l3);' }
+      - { address: 0x0856, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0858, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x085A, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x085C, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x085E, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0860, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0862, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0864, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0866, value_type: FP32, read_lambda: 'return id(grid_pf_total);' }
+      - { address: 0x0868, value_type: FP32, read_lambda: 'return id(grid_pf_l1);' }
+      - { address: 0x086A, value_type: FP32, read_lambda: 'return id(grid_pf_l2);' }
+      - { address: 0x086C, value_type: FP32, read_lambda: 'return id(grid_pf_l3);' }
+      - { address: 0x086E, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0870, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0872, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0874, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0876, value_type: FP32, read_lambda: 'return id(ep_imp);' }
+      - { address: 0x0878, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x087A, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x087C, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x087E, value_type: FP32, read_lambda: 'return id(ep_exp);' }
+      - { address: 0x0880, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0882, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x0884, value_type: FP32, read_lambda: 'return 0.0f;' }
+      - { address: 0x08A6, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08A7, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08A8, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08A9, value_type: U_WORD, read_lambda: 'return (uint16_t) ${param_2217};' }
+      - { address: 0x08AA, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08AB, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08AC, value_type: U_WORD, read_lambda: 'return (uint16_t) ${param_2220};' }
+      - { address: 0x08AD, value_type: U_WORD, read_lambda: 'return (uint16_t) ${param_2221};' }
+      - { address: 0x08AE, value_type: U_WORD, read_lambda: 'return 0;' }
+      - { address: 0x08AF, value_type: U_WORD, read_lambda: 'return (uint16_t) ${param_2223};' }

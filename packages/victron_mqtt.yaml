@@ -1,0 +1,116 @@
+# Victron grid -> registers. The Victron sign matches the DTSU666 registers (+import/-export),
+# do NOT invert (confirmed from a live Cerbo dump: on export Ac/Power is negative).
+# Topics/instance confirmed from the broker: grid instance = 0.
+mqtt:
+  id: mqtt_client
+  broker: ${victron_mqtt_host}
+  port: 1883
+  username: !secret victron_mqtt_user
+  password: !secret victron_mqtt_password
+  discovery: false
+  topic_prefix: dtsu666emu
+  # Do NOT reboot when the broker is unreachable (15 min default): when Victron is lost the
+  # fail-safe already mutes Modbus, and a reboot drops the bus + opens a 30 s window answering
+  # with defaults (Pt=0).
+  reboot_timeout: 0s
+  # MQTT log disabled (ESPHome default is to publish ALL log lines to <prefix>/debug): no
+  # reason to stream a constant flow to the production Cerbo broker. Logs stay in api/web_server.
+  log_topic:
+  on_connect:
+    # Keepalive with suppress-republish: keeps ALL topics alive, but WITHOUT republishing.
+    # Note: originally this was a selective topic list, but a measurement on the live broker
+    # showed that on the current Venus "selective" does NOT behave as selective — every
+    # keepalive with a list triggered a FULL republish of all ~5500 topics every 30 s (bursts
+    # ≈100 msg/s across all subtrees, in phase with our keepalive). suppress-republish is the
+    # victron_mqtt (HA) client semantics and produces no bursts. We get the topics we need via
+    # the targeted on_json_message subscriptions below.
+    # The &keepalive_payload anchor is reused in the interval below (single source).
+    - mqtt.publish:
+        topic: R/${victron_portal_id}/keepalive
+        payload: &keepalive_payload '{ "keepalive-options" : ["suppress-republish"] }'
+  on_json_message:
+    # --- Active power (total + phases); total = the key signal for zero-export ---
+    # last_grid_update_ms (freshness for fail-safe) is updated ONLY by Ac/Power: control runs
+    # off Pt (0x084E), and freshness is tied to it. Previously the phase Lx/Power updated the
+    # timestamp too → if only Ac/Power dropped out, the inverter would control off a stale Pt
+    # while fresh=true. Phases are telemetry and must not move freshness.
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/Power
+      then:
+        - lambda: |-
+            if (!x["value"].isNull()) {
+              id(grid_p_total) = x["value"].as<float>();
+              id(last_grid_update_ms) = millis();
+            }
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L1/Power
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_p_l1) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L2/Power
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_p_l2) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L3/Power
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_p_l3) = x["value"].as<float>(); }'
+    # --- Phase voltages L-N ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L1/Voltage
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_u_l1) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L2/Voltage
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_u_l2) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L3/Voltage
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_u_l3) = x["value"].as<float>(); }'
+    # --- Line-to-line voltages (Victron VoltageLineToLine). Convention:
+    #     L1->Uab(L1-L2), L2->Ubc(L2-L3), L3->Uca(L3-L1). Pairing can be double-checked if needed. ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L1/VoltageLineToLine
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_uab) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L2/VoltageLineToLine
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_ubc) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L3/VoltageLineToLine
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_uca) = x["value"].as<float>(); }'
+    # --- Phase currents ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L1/Current
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_i_l1) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L2/Current
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_i_l2) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L3/Current
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_i_l3) = x["value"].as<float>(); }'
+    # --- cos φ (total + phases), scale 1 ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/PowerFactor
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_pf_total) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L1/PowerFactor
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_pf_l1) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L2/PowerFactor
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_pf_l2) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/L3/PowerFactor
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_pf_l3) = x["value"].as<float>(); }'
+    # --- Accumulated energy (kWh): Forward=import, Reverse=export ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/Energy/Forward
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(ep_imp) = x["value"].as<float>(); }'
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/Energy/Reverse
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(ep_exp) = x["value"].as<float>(); }'
+    # --- Frequency ---
+    - topic: N/${victron_portal_id}/grid/${victron_grid_instance}/Ac/Frequency
+      then:
+        - lambda: 'if (!x["value"].isNull()) { id(grid_freq) = x["value"].as<float>(); }'
+
+interval:
+  # Keepalive every 30 s (broker timeout is 60 s) — the same &keepalive_payload as in
+  # on_connect (suppress-republish: everything stays alive, without republish bursts).
+  - interval: 30s
+    then:
+      - mqtt.publish:
+          topic: R/${victron_portal_id}/keepalive
+          payload: *keepalive_payload
