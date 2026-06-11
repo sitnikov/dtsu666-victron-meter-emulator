@@ -1,12 +1,12 @@
 # DTSU666-H meter emulator (ESPHome) — Victron → Huawei SUN2000
 
-ESP32 firmware that emulates a **Chint DTSU666-H** smart meter (Modbus-RTU slave) on the
-RS485 bus of a **Huawei SUN2000** inverter. The grid values are sourced from a **Victron
+ESP32 firmware that emulates the **Huawei DTSU666-H Smart Power Sensor** (Modbus-RTU slave) on
+the RS485 bus of a **Huawei SUN2000** inverter — the grid meter Huawei ships with SUN2000. The grid values are sourced from a **Victron
 Cerbo GX** over its built-in MQTT broker — so the inverter's built-in **export limitation**
 works without installing a separate physical meter.
 
-In other words: the inverter thinks it is talking to a real Chint grid meter; in reality an
-ESP32 mirrors the grid power that Victron already measures.
+In other words: the inverter thinks it is talking to a real Huawei DTSU666-H grid meter; in
+reality an ESP32 mirrors the grid power that Victron already measures.
 
 > **Status:** the config **builds under ESPHome 2026.5.1** (`config` valid + `compile`
 > green) and has been validated on a real **SUN2000-15KTL-M2**: meter identified, sign/scale
